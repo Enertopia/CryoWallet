@@ -4,6 +4,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.Log;
 import android.widget.Toast;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AlertDialog;
@@ -17,7 +18,8 @@ import java.util.logging.Logger;
  */
 public class ColdWalletActivity extends AppCompatActivity {
 
-    private SecureProcessor sp;
+    private static final String TAG = ColdWalletActivity.class.getSimpleName();
+    private SecureProcessor secureProcessor;
     private SecureEnclave secureEnclave;
     private ColdWallet coldWallet;
     private AirplaneModeManager airplaneModeManager;
@@ -38,7 +40,7 @@ public class ColdWalletActivity extends AppCompatActivity {
     }
 
     private void initializeComponents() {
-        sp = new SecureProcessor();
+        secureProcessor = new SecureProcessor();
         secureEnclave = new SecureEnclave();
         coldWallet = new ColdWallet();
         airplaneModeManager = new AirplaneModeManager(this);
@@ -83,7 +85,6 @@ public class ColdWalletActivity extends AppCompatActivity {
                 handleException("Error activating Airplane Mode", e);
             }
         }
-        setUsbConnectivity(true);
         generateWalletOffline();
     }
 
@@ -95,11 +96,11 @@ public class ColdWalletActivity extends AppCompatActivity {
             secureEnclave.storeKey(privateKey, mnemonic);
 
             // Display mnemonic for user backup (Example: Print to log)
-            Logger.getLogger(ColdWalletActivity.class.getName()).info("Generated Mnemonic: " + mnemonic);
+            Log.d(TAG, "Generated Mnemonic: " + mnemonic);
 
             // Additional advanced features
             double result = improvedMathCalculation();
-            Logger.getLogger(ColdWalletActivity.class.getName()).info("Improved Math Result: " + result);
+            Log.d(TAG, "Improved Math Result: " + result);
         } catch (Exception e) {
             handleException("Error generating wallet", e);
         }
@@ -107,10 +108,12 @@ public class ColdWalletActivity extends AppCompatActivity {
 
     private Key generatePrivateKey() throws Exception {
         // Implement key generation logic
+        return null;
     }
 
     private String generateMnemonic() {
         // Implement mnemonic generation logic
+        return "";
     }
 
     private double improvedMathCalculation() {
@@ -126,19 +129,14 @@ public class ColdWalletActivity extends AppCompatActivity {
         } catch (Exception e) {
             handleException("Error deactivating Airplane Mode", e);
         }
-        restoreUSBConnectivity();
     }
 
     private void disableAirplaneMode() throws Exception {
         airplaneModeManager.deactivateAirplaneMode();
     }
 
-    private void restoreUSBConnectivity() {
-        // Implement logic to restore USB connectivity when the app stops
-    }
-
     private void handleException(String message, Exception e) {
-        Logger.getLogger(ColdWalletActivity.class.getName()).severe(message + ": " + e.getMessage());
+        Log.e(TAG, message + ": " + e.getMessage());
         Toast.makeText(this, "An error occurred: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         // You might want to inform the user or log the error
     }
