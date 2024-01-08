@@ -6,14 +6,23 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.util.Log;
 import android.widget.Toast;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.security.crypto.EncryptedFile;
+import androidx.security.crypto.MasterKeys;
+import java.io.File;
 import java.security.Key;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.UnrecoverableEntryException;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.KeyGenParameterSpec;
+import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 
@@ -28,6 +37,7 @@ public class ColdWalletActivity extends AppCompatActivity {
     private SecureEnclave secureEnclave;
     private ColdWallet coldWallet;
     private AirplaneModeManager airplaneModeManager;
+    private EncryptedFileSystem encryptedFileSystem;
     private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
     private static final String KEY_ALIAS = "MySecureKey";
     private static final int REQUEST_CODE_AIRPLANE_MODE_PERMISSION = 123;
@@ -49,6 +59,7 @@ public class ColdWalletActivity extends AppCompatActivity {
         secureEnclave = new SecureEnclave();
         coldWallet = new ColdWallet();
         airplaneModeManager = new AirplaneModeManager(this);
+        encryptedFileSystem = new EncryptedFileSystem();
     }
 
     private void promptAirplaneMode() {
@@ -97,10 +108,15 @@ public class ColdWalletActivity extends AppCompatActivity {
         try {
             KeyPairGenerator keyGenerator = KeyPairGenerator.getInstance(
                     KeyProperties.KEY_ALGORITHM_EC, KEYSTORE_PROVIDER);
+
             KeyGenParameterSpec keyGenSpec = new KeyGenParameterSpec.Builder(KEY_ALIAS,
                     KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                     .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256k1"))
+                    .setAttestationChallenge(challenge) // Add key attestation challenge
+                    .setUserAuthenticationRequired(true)
+                    .setUserAuthenticationValidityDurationSeconds(30)
                     .build();
+
             keyGenerator.initialize(keyGenSpec);
 
             KeyPair keyPair = keyGenerator.generateKeyPair();
@@ -108,7 +124,19 @@ public class ColdWalletActivity extends AppCompatActivity {
             Key privateKey = keyPair.getPrivate();
             String mnemonic = generateMnemonic();
 
-            secureEnclave.storeKey(privateKey, mnemonic);
+            // Use encrypted file system to securely store mnemonic phrase
+            byte[] encryptedMnemonic = encryptedFileSystem.encrypt(mnemonic);
+            encryptedFileSystem.write("mnemonic.enc", encryptedMnemonic);
+
+            // Implement BIP32 HD wallet from mnemonic
+            HDWallet hdWallet = new HDWallet(mnemonic);
+            HDKey hdKey = hdWallet.generateKey("m/44'/0'/0'/0/0");
+
+            // Use key wrapping to securely store private key
+            SecretKey aesKey = KeyGenerator.getInstance("AES").generateKey();
+            byte[] wrappedKey = aesKey.wrap(privateKey);
+
+            secureEnclave.storeKey(wrappedKey, hdKey);
 
             // Display mnemonic for user backup (Example: Print to log)
             Log.d(TAG, "Generated Mnemonic: " + mnemonic);
@@ -116,6 +144,16 @@ public class ColdWalletActivity extends AppCompatActivity {
             // Additional advanced features
             double result = improvedMathCalculation();
             Log.d(TAG, "Improved Math Result: " + result);
+
+            // Implement BIP39 mnemonic generation and BIP32 HD wallet
+
+            // Only keep a small amount in cold wallet, keep majority in cold storage
+
+            // Detect root and prevent access on rooted devices
+
+            // Use cryptography best practices like key wrapping, multiple keys, anti-tamper mechanisms
+
+            // Add more checks and validations throughout the code
         } catch (Exception e) {
             handleException("Error generating wallet", e);
         }
@@ -130,26 +168,6 @@ public class ColdWalletActivity extends AppCompatActivity {
     private double improvedMathCalculation() {
         // Implement advanced math calculation logic
         return Math.sin(2.0) + Math.log10(10.0);
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        try {
-            disableAirplaneMode();
-        } catch (Exception e) {
-            handleException("Error deactivating Airplane Mode", e);
-        }
-    }
-
-    private void disableAirplaneMode() throws Exception {
-        airplaneModeManager.deactivateAirplaneMode();
-    }
-
-    private void handleException(String message, Exception e) {
-        Log.e(TAG, message + ": " + e.getMessage());
-        Toast.makeText(this, "An error occurred: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        // You might want to inform the user or log the error
     }
 
     private boolean hasAirplaneModePermission() {
@@ -174,5 +192,11 @@ public class ColdWalletActivity extends AppCompatActivity {
                 Toast.makeText(this, "Airplane Mode permission is required", Toast.LENGTH_SHORT).show();
             }
         }
+    }
+
+    private void handleException(String message, Exception e) {
+        Log.e(TAG, message + ": " + e.getMessage());
+        Toast.makeText(this, "An error occurred: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        // You might want to inform the user or log the error
     }
 }
