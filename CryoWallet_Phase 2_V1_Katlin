@@ -1,0 +1,158 @@
+import android.content.DialogInterface
+import android.os.Bundle
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import java.security.Key
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.PrivateKey
+import java.util.logging.Logger
+
+/**
+ * CryoWallet - Cold Wallet Application
+ * Copyright (c) 2023 Emiliano German Solazzi Griminger. All rights reserved.
+ */
+class ColdWalletActivity : AppCompatActivity() {
+
+    private lateinit var sp: SecureProcessor
+    private lateinit var secureEnclave: SecureEnclave
+    private lateinit var coldWallet: ColdWallet
+    private lateinit var airplaneModeManager: AirplaneModeManager
+
+    private companion object {
+        const val KEYSTORE_PROVIDER = "AndroidKeyStore"
+        const val KEY_ALIAS = "MySecureKey"
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_cold_wallet)
+
+        // Initialize components
+        initializeComponents()
+
+        // Prompt user to turn on airplane mode and explain the benefits
+        promptAirplaneMode()
+    }
+
+    private fun initializeComponents() {
+        sp = SecureProcessor()
+        secureEnclave = SecureEnclave()
+        coldWallet = ColdWallet()
+        airplaneModeManager = AirplaneModeManager(this)
+    }
+
+    private fun promptAirplaneMode() {
+        AlertDialog.Builder(this)
+            .setTitle("Airplane Mode")
+            .setMessage("To enhance security, it is recommended to turn on Airplane Mode. Do you want to proceed with Airplane Mode?")
+            .setPositiveButton("Yes") { _, _ ->
+                handleAirplaneModeDecision(true)
+            }
+            .setNegativeButton("No") { _, _ ->
+                handleAirplaneModeDecision(false)
+            }
+            .setOnCancelListener {
+                handleAirplaneModeDecision(false)
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun handleAirplaneModeDecision(enableAirplaneMode: Boolean) {
+        if (enableAirplaneMode) {
+            try {
+                airplaneModeManager.activateAirplaneMode()
+            } catch (e: Exception) {
+                handleException("Error activating Airplane Mode", e)
+            }
+        }
+        setUsbConnectivity(true)
+        generateWalletOffline()
+    }
+
+    private fun generateWalletOffline() {
+        try {
+            val privateKey = generatePrivateKey()
+            val mnemonic = generateMnemonic()
+
+            secureEnclave.storeKey(privateKey, mnemonic)
+
+            // Display mnemonic for user backup (Example: Print to log)
+            Logger.getLogger(ColdWalletActivity::class.java.name).info("Generated Mnemonic: $mnemonic")
+
+            // Additional advanced features
+            val result = improvedMathCalculation()
+            Logger.getLogger(ColdWalletActivity::class.java.name).info("Improved Math Result: $result")
+        } catch (e: Exception) {
+            handleException("Error generating wallet", e)
+        }
+    }
+
+    private fun generatePrivateKey(): Key {
+        val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER)
+        keyStore.load(null)
+
+        if (!keyStore.containsAlias(KEY_ALIAS)) {
+            val keyPairGenerator = KeyPairGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_RSA, KEYSTORE_PROVIDER
+            )
+
+            keyPairGenerator.initialize(
+                KeyGenParameterSpec.Builder(
+                    KEY_ALIAS,
+                    KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_ENCRYPT
+                )
+                    .setKeySize(2048)
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .build()
+            )
+
+            keyPairGenerator.generateKeyPair()
+        }
+
+        return keyStore.getKey(KEY_ALIAS, null)
+    }
+
+    private fun generateMnemonic(): String {
+        return try {
+            val entropy = Bip39JavaUtils.generateEntropy(128)
+            Bip39JavaUtils.generateMnemonic(entropy)
+        } catch (e: Exception) {
+            handleException("Error generating mnemonic", e)
+            ""
+        }
+    }
+
+    private fun improvedMathCalculation(): Double {
+        // Replace this with your specific mathematical logic
+        return Math.sin(2.0) + Math.log10(10.0)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            disableAirplaneMode()
+        } catch (e: Exception) {
+            handleException("Error deactivating Airplane Mode", e)
+        }
+        restoreUSBConnectivity()
+    }
+
+    private fun disableAirplaneMode() {
+        try {
+            airplaneModeManager.deactivateAirplaneMode()
+        } catch (e: Exception) {
+            handleException("Error deactivating Airplane Mode", e)
+        }
+    }
+
+    private fun restoreUSBConnectivity() {
+        // Implement USB connectivity restoration if needed
+    }
+
+    private fun handleException(message: String, e: Exception) {
+        Logger.getLogger(ColdWalletActivity::class.java.name).severe("$message: ${e.message}")
+        // You might want to inform the user or log the error
+    }
+}
