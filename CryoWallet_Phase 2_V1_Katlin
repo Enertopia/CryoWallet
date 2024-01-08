@@ -1,4 +1,4 @@
-import android.content.DialogInterface
+import android.content.Context
 import android.os.Bundle
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -7,11 +7,9 @@ import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.util.logging.Logger
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 
-/**
- * CryoWallet - Cold Wallet Application
- * Copyright (c) 2023 Emiliano German Solazzi Griminger. All rights reserved.
- */
 class ColdWalletActivity : AppCompatActivity() {
 
     private lateinit var sp: SecureProcessor
@@ -28,10 +26,7 @@ class ColdWalletActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_cold_wallet)
 
-        // Initialize components
         initializeComponents()
-
-        // Prompt user to turn on airplane mode and explain the benefits
         promptAirplaneMode()
     }
 
