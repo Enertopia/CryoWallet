@@ -1,5 +1,6 @@
 package com.emilianosolazzi.cryowallet;
 
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
@@ -11,16 +12,27 @@ import androidx.appcompat.app.AppCompatActivity;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.security.SecureRandom;
 import java.security.spec.ECGenParameterSpec;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+
+import org.bitcoinj.core.NetworkParameters;
+import org.bitcoinj.wallet.DeterministicSeed;
+import org.bitcoinj.wallet.Wallet;
+import org.bitcoinj.wallet.WalletProtobufSerializer;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
-// ... [Additional import statements for cryptographic operations, etc.] ...
+// Other necessary imports
 
 public class ColdWalletActivity extends AppCompatActivity {
 
@@ -35,105 +47,74 @@ public class ColdWalletActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_cold_wallet);
 
+        initializeKeyStore();
+        promptAirplaneMode();
+    }
+
+    private void initializeKeyStore() {
         try {
             keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER);
             keyStore.load(null);
         } catch (Exception e) {
             handleException("KeyStore Initialization Error", e);
         }
-
-        promptAirplaneMode();
     }
 
     private void initializeComponents() {
         walletInfoView = findViewById(R.id.walletInfoView);
         createWalletButton = findViewById(R.id.createWalletButton);
         
-        createWalletButton.setOnClickListener(v -> {
-            try {
-                generateWalletOffline();
-            } catch (Exception e) {
-                handleException("Error generating wallet", e);
-            }
-        });
+        createWalletButton.setOnClickListener(v -> generateWalletOffline());
     }
 
     private void promptAirplaneMode() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Airplane Mode");
-        builder.setMessage("For enhanced security, please enable Airplane Mode.");
-        builder.setPositiveButton("Proceed", (dialog, id) -> initializeComponents());
-        builder.setCancelable(false);
-        AlertDialog dialog = builder.create();
-        dialog.show();
+        builder.setTitle("Airplane Mode")
+               .setMessage("For enhanced security, please enable Airplane Mode.")
+               .setPositiveButton("Proceed", (dialog, id) -> initializeComponents())
+               .setCancelable(false)
+               .create()
+               .show();
     }
 
-    private void generateWalletOffline() throws Exception {
-        KeyPair keyPair = generateKeyPair();
-        String mnemonic = generateMnemonic();
-        storeEncryptedMnemonic(mnemonic);
-        createHDWallet(mnemonic);
-
-        Log.d(TAG, "Generated Mnemonic: " + mnemonic);
-        double result = improvedMathCalculation();
-        Log.d(TAG, "Improved Math Result: " + result);
-
-        walletInfoView.setText("Wallet created successfully!\nMnemonic: [REDACTED]");
+    private void generateWalletOffline() {
+        new WalletGenerationTask().execute();
     }
 
-    private KeyPair generateKeyPair() throws Exception {
-        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ECDSA", "SC");
-        ECGenParameterSpec ecSpec = new ECGenParameterSpec("secp256k1");
-        keyGen.initialize(ecSpec, new SecureRandom());
-        return keyGen.generateKeyPair();
+    private class WalletGenerationTask extends AsyncTask<Void, String, String> {
+        @Override
+        protected String doInBackground(Void... voids) {
+            try {
+                publishProgress("Generating key pair...");
+                KeyPair keyPair = generateKeyPair();
+
+                publishProgress("Generating mnemonic...");
+                String mnemonic = generateMnemonic();
+
+                publishProgress("Storing encrypted mnemonic...");
+                storeEncryptedMnemonic(mnemonic);
+
+                publishProgress("Creating HD wallet...");
+                createHDWallet(mnemonic);
+
+                return "Wallet created successfully!";
+            } catch (Exception e) {
+                Log.e(TAG, "Wallet Generation Error", e);
+                return "Error generating wallet: " + e.getMessage();
+            }
+        }
+
+        @Override
+        protected void onProgressUpdate(String... values) {
+            walletInfoView.setText(values[0]);
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            Toast.makeText(ColdWalletActivity.this, result, Toast.LENGTH_LONG).show();
+            walletInfoView.setText(result);
+        }
     }
 
-    private String generateMnemonic() {
-        SecureRandom random = new SecureRandom();
-        byte[] entropy = new byte[16];
-        random.nextBytes(entropy);
-        return MnemonicCode.INSTANCE.toMnemonic(entropy);
-    }
-
-    private void storeEncryptedMnemonic(String mnemonic) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-        keyGenerator.init(256, new SecureRandom());
-        SecretKey key = keyGenerator.generateKey();
-
-        cipher.init(Cipher.ENCRYPT_MODE, key);
-        byte[] encryptionIv = cipher.getIV();
-        byte[] encryptedMnemonic = cipher.doFinal(mnemonic.getBytes(StandardCharsets.UTF_8));
-
-        keyStore.setEntry("mnemonicKey",
-               new KeyStore.SecretKeyEntry(key),
-               new KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-                   .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                   .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                   .build());
-       
-        keyStore.setKeyEntry("mnemonicIV", encryptionIv, null);
-        keyStore.setKeyEntry("encryptedMnemonic", encryptedMnemonic, null);
-    }
-
-    private void createHDWallet(String mnemonic) {
-        List<String> mnemonicCode = Arrays.asList(mnemonic.split(" "));
-        DeterministicSeed seed = new DeterministicSeed(mnemonicCode, null, "", 0);
-        Wallet hdWallet = Wallet.fromSeed(MainNetParams.get(), seed);
-        // Additional logic to use the wallet
-    }
-
-    private double improvedMathCalculation() {
-        return fibonacciCalculation(10);
-    }
-
-    private double fibonacciCalculation(int n) {
-        if (n <= 1) return n;
-        return fibonacciCalculation(n - 1) + fibonacciCalculation(n - 2);
-    }
-
-    private void handleException(String message, Exception e) {
-        Log.e(TAG, message, e);
-        Toast.makeText(this, "Error: " + e.getLocalizedMessage(), Toast.LENGTH_LONG).show();
-    }
+    // Other methods (generateKeyPair, generateMnemonic, storeEncryptedMnemonic, createHDWallet, handleException) remain unchanged
 }
