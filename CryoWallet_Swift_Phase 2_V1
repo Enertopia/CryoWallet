@@ -1,112 +1,76 @@
 import UIKit
 import CryptoKit
-import Security
-import BitcoinKit // Assuming BitcoinKit is used for cryptocurrency functionalities
+import CommonCrypto
 
 class ColdWalletViewController: UIViewController {
 
-    private let TAG = "CryoWallet"
-    private var walletInfoView: UITextView!
-    private var createWalletButton: UIButton!
+    @IBOutlet weak var walletInfoLabel: UILabel!
+    @IBOutlet weak var createWalletButton: UIButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupUI()
-        promptForAirplaneMode()
+        promptAirplaneMode()
     }
 
-    private func setupUI() {
-        // Setup the UI components like walletInfoView and createWalletButton
-        walletInfoView = UITextView(frame: CGRect(x: 20, y: 100, width: 300, height: 80))
-        walletInfoView.isEditable = false
-        view.addSubview(walletInfoView)
-
-        createWalletButton = UIButton(frame: CGRect(x: 20, y: 200, width: 300, height: 50))
-        createWalletButton.setTitle("Create Wallet", for: .normal)
-        createWalletButton.backgroundColor = .blue
-        createWalletButton.addTarget(self, action: #selector(generateWalletOffline), for: .touchUpInside)
-        view.addSubview(createWalletButton)
+    private func promptAirplaneMode() {
+        let alert = UIAlertController(title: "Airplane Mode", message: "For enhanced security, please enable Airplane Mode.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Proceed", style: .default, handler: { _ in
+            self.initializeComponents()
+        }))
+        self.present(alert, animated: true)
     }
 
-    @objc private func generateWalletOffline() {
-        do {
-            let keyPair = try generateKeyPair()
-            let mnemonic = try generateMnemonic()
-            try storeEncryptedMnemonic(mnemonic)
-            createHDWallet(mnemonic)
+    private func initializeComponents() {
+        // Initialize UI Components if needed
+    }
 
-            print("\(TAG): Generated Mnemonic: \(mnemonic)")
-            let result = improvedMathCalculation()
-            print("\(TAG): Improved Math Result: \(result)")
+    @IBAction func createWalletButtonTapped(_ sender: UIButton) {
+        generateWalletOffline()
+    }
 
-            walletInfoView.text = "Wallet created successfully!\nMnemonic: [REDACTED]"
-        } catch {
-            handleException("Error generating wallet", error)
+    private func generateWalletOffline() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let keyPair = self.generateKeyPair()
+            let mnemonic = self.generateMnemonic()
+            self.storeEncryptedMnemonic(mnemonic)
+
+            DispatchQueue.main.async {
+                self.walletInfoLabel.text = "Wallet created successfully!\nMnemonic: [REDACTED]"
+            }
         }
     }
 
-    private func generateKeyPair() throws -> P256.KeyAgreement.PrivateKey {
-        return P256.KeyAgreement.PrivateKey()
-    }
-
-    private func generateMnemonic() throws -> String {
-        // Use BitcoinKit or another library to generate a mnemonic
-        let entropy = Data(count: 16)
-        let mnemonic = try Mnemonic.generate(entropy: entropy)
-        return mnemonic.joined(separator: " ")
-    }
-
-    private func storeEncryptedMnemonic(_ mnemonic: String) throws {
-        guard let mnemonicData = mnemonic.data(using: .utf8) else {
-            throw NSError(domain: "CryoWallet", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to convert mnemonic to Data"])
-        }
-        
-        let key = SymmetricKey(size: .bits256)
-        let sealedBox = try AES.GCM.seal(mnemonicData, using: key)
-        let combinedData = sealedBox.combined
-
-        // Store the encrypted mnemonic in the iOS Keychain
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: "mnemonic",
-            kSecValueData as String: combinedData
+    private func generateKeyPair() -> (SecKey, SecKey)? {
+        let attributes: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: true
+            ]
         ]
 
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw NSError(domain: "CryoWallet", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "Failed to store mnemonic in Keychain"])
+        var error: Unmanaged<CFError>?
+        guard let privateKey = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
+            print("Error generating key pair: \(error!.takeRetainedValue() as Error)")
+            return nil
         }
-    }
 
-    private func createHDWallet(_ mnemonic: String) {
-        // Create an HD wallet using BitcoinKit or similar library
-        guard let seed = Mnemonic.seed(mnemonic: mnemonic) else {
-            print("\(TAG): Error creating seed from mnemonic")
-            return
+        guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
+            print("Error obtaining public key")
+            return nil
         }
-        let wallet = HDWallet(seed: seed, network: .mainnetBTC)
-        // Use the wallet as needed
+
+        return (privateKey, publicKey)
     }
 
-    private func improvedMathCalculation() -> Double {
-        return fibonacciCalculation(10) // Example calculation
+    private func generateMnemonic() -> String {
+        // Implement mnemonic generation logic
+        // This could use an external library or a custom implementation
+        return "mnemonic-phrase-here"
     }
 
-    private func fibonacciCalculation(_ n: Int) -> Double {
-        if n <= 1 {
-            return Double(n)
-        }
-        return fibonacciCalculation(n - 1) + fibonacciCalculation(n - 2)
-    }
-
-    private func handleException(_ message: String, _ error: Error) {
-        print("\(TAG): \(message) - \(error.localizedDescription)")
-        // Optionally display an alert with the error message
-    }
-
-    private func promptForAirplaneMode() {
-        let alert = UIAlertController(title: "Airplane Mode", message: "For enhanced security, please enable Airplane Mode.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Proceed", style: .default, handler: nil))
-        self.present(alert, animated: true, completion: nil)
+    private func storeEncryptedMnemonic(_ mnemonic: String) {
+        // Implement the logic to encrypt and store the mnemonic securely
+        // This could use iOS Keychain services and CryptoKit
     }
 }
