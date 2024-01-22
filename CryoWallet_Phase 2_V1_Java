@@ -1,202 +1,139 @@
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.net.Uri;
-import android.os.Build;
+package com.emilianosolazzi.cryowallet;
+
 import android.os.Bundle;
-import android.provider.Settings;
 import android.util.Log;
+import android.widget.Button;
+import android.widget.TextView;
 import android.widget.Toast;
-import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.security.crypto.EncryptedFile;
-import androidx.security.crypto.MasterKeys;
-import java.io.File;
-import java.security.Key;
+
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.UnrecoverableEntryException;
+import java.security.SecureRandom;
 import java.security.spec.ECGenParameterSpec;
-import java.security.spec.KeyGenParameterSpec;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 
-/**
- * CryoWallet - Cold Wallet Application
- * Copyright (c) 2023 Emiliano German Solazzi Griminger. All rights reserved.
- */
+// ... [Additional import statements for cryptographic operations, etc.] ...
+
 public class ColdWalletActivity extends AppCompatActivity {
 
-    private static final String TAG = ColdWalletActivity.class.getSimpleName();
-    private SecureProcessor secureProcessor;
-    private SecureEnclave secureEnclave;
-    private ColdWallet coldWallet;
-    private AirplaneModeManager airplaneModeManager;
-    private EncryptedFileSystem encryptedFileSystem;
+    private static final String TAG = "CryoWallet";
+    private TextView walletInfoView;
+    private Button createWalletButton;
     private static final String KEYSTORE_PROVIDER = "AndroidKeyStore";
-    private static final String KEY_ALIAS = "MySecureKey";
-    private static final int REQUEST_CODE_AIRPLANE_MODE_PERMISSION = 123;
+    private KeyStore keyStore;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_cold_wallet);
 
-        // Initialize components
-        initializeComponents();
+        try {
+            keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER);
+            keyStore.load(null);
+        } catch (Exception e) {
+            handleException("KeyStore Initialization Error", e);
+        }
 
-        // Prompt user to turn on airplane mode and explain the benefits
         promptAirplaneMode();
     }
 
     private void initializeComponents() {
-        secureProcessor = new SecureProcessor();
-        secureEnclave = new SecureEnclave();
-        coldWallet = new ColdWallet();
-        airplaneModeManager = new AirplaneModeManager(this);
-        encryptedFileSystem = new EncryptedFileSystem();
+        walletInfoView = findViewById(R.id.walletInfoView);
+        createWalletButton = findViewById(R.id.createWalletButton);
+        
+        createWalletButton.setOnClickListener(v -> {
+            try {
+                generateWalletOffline();
+            } catch (Exception e) {
+                handleException("Error generating wallet", e);
+            }
+        });
     }
 
     private void promptAirplaneMode() {
-        if (!hasAirplaneModePermission()) {
-            requestAirplaneModePermission();
-            return;
-        }
-
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Airplane Mode");
-        builder.setMessage("To enhance security, it is recommended to turn on Airplane Mode. Do you want to proceed with Airplane Mode?");
-        builder.setPositiveButton("Yes", new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                handleAirplaneModeDecision(true);
-            }
-        });
-        builder.setNegativeButton("No", new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                handleAirplaneModeDecision(false);
-            }
-        });
-        builder.setOnCancelListener(new DialogInterface.OnCancelListener() {
-            @Override
-            public void onCancel(DialogInterface dialog) {
-                handleAirplaneModeDecision(false);
-            }
-        });
-        builder.setCancelable(false); // User must make a choice
-        builder.show();
+        builder.setMessage("For enhanced security, please enable Airplane Mode.");
+        builder.setPositiveButton("Proceed", (dialog, id) -> initializeComponents());
+        builder.setCancelable(false);
+        AlertDialog dialog = builder.create();
+        dialog.show();
     }
 
-    private void handleAirplaneModeDecision(boolean enableAirplaneMode) {
-        if (enableAirplaneMode) {
-            try {
-                airplaneModeManager.activateAirplaneMode();
-            } catch (Exception e) {
-                handleException("Error activating Airplane Mode", e);
-            }
-        }
-        generateWalletOffline();
+    private void generateWalletOffline() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        String mnemonic = generateMnemonic();
+        storeEncryptedMnemonic(mnemonic);
+        createHDWallet(mnemonic);
+
+        Log.d(TAG, "Generated Mnemonic: " + mnemonic);
+        double result = improvedMathCalculation();
+        Log.d(TAG, "Improved Math Result: " + result);
+
+        walletInfoView.setText("Wallet created successfully!\nMnemonic: [REDACTED]");
     }
 
-    private void generateWalletOffline() {
-        try {
-            KeyPairGenerator keyGenerator = KeyPairGenerator.getInstance(
-                    KeyProperties.KEY_ALGORITHM_EC, KEYSTORE_PROVIDER);
-
-            KeyGenParameterSpec keyGenSpec = new KeyGenParameterSpec.Builder(KEY_ALIAS,
-                    KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
-                    .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256k1"))
-                    .setAttestationChallenge(challenge) // Add key attestation challenge
-                    .setUserAuthenticationRequired(true)
-                    .setUserAuthenticationValidityDurationSeconds(30)
-                    .build();
-
-            keyGenerator.initialize(keyGenSpec);
-
-            KeyPair keyPair = keyGenerator.generateKeyPair();
-
-            Key privateKey = keyPair.getPrivate();
-            String mnemonic = generateMnemonic();
-
-            // Use encrypted file system to securely store mnemonic phrase
-            byte[] encryptedMnemonic = encryptedFileSystem.encrypt(mnemonic);
-            encryptedFileSystem.write("mnemonic.enc", encryptedMnemonic);
-
-            // Implement BIP32 HD wallet from mnemonic
-            HDWallet hdWallet = new HDWallet(mnemonic);
-            HDKey hdKey = hdWallet.generateKey("m/44'/0'/0'/0/0");
-
-            // Use key wrapping to securely store private key
-            SecretKey aesKey = KeyGenerator.getInstance("AES").generateKey();
-            byte[] wrappedKey = aesKey.wrap(privateKey);
-
-            secureEnclave.storeKey(wrappedKey, hdKey);
-
-            // Display mnemonic for user backup (Example: Print to log)
-            Log.d(TAG, "Generated Mnemonic: " + mnemonic);
-
-            // Additional advanced features
-            double result = improvedMathCalculation();
-            Log.d(TAG, "Improved Math Result: " + result);
-
-            // Implement BIP39 mnemonic generation and BIP32 HD wallet
-
-            // Only keep a small amount in cold wallet, keep majority in cold storage
-
-            // Detect root and prevent access on rooted devices
-
-            // Use cryptography best practices like key wrapping, multiple keys, anti-tamper mechanisms
-
-            // Add more checks and validations throughout the code
-        } catch (Exception e) {
-            handleException("Error generating wallet", e);
-        }
+    private KeyPair generateKeyPair() throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("ECDSA", "SC");
+        ECGenParameterSpec ecSpec = new ECGenParameterSpec("secp256k1");
+        keyGen.initialize(ecSpec, new SecureRandom());
+        return keyGen.generateKeyPair();
     }
 
     private String generateMnemonic() {
-        MnemonicGenerator mg = new MnemonicGenerator();
-        byte[] entropy = mg.generateEntropy(256);
-        return mg.toMnemonic(entropy);
+        SecureRandom random = new SecureRandom();
+        byte[] entropy = new byte[16];
+        random.nextBytes(entropy);
+        return MnemonicCode.INSTANCE.toMnemonic(entropy);
+    }
+
+    private void storeEncryptedMnemonic(String mnemonic) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(256, new SecureRandom());
+        SecretKey key = keyGenerator.generateKey();
+
+        cipher.init(Cipher.ENCRYPT_MODE, key);
+        byte[] encryptionIv = cipher.getIV();
+        byte[] encryptedMnemonic = cipher.doFinal(mnemonic.getBytes(StandardCharsets.UTF_8));
+
+        keyStore.setEntry("mnemonicKey",
+               new KeyStore.SecretKeyEntry(key),
+               new KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                   .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                   .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                   .build());
+       
+        keyStore.setKeyEntry("mnemonicIV", encryptionIv, null);
+        keyStore.setKeyEntry("encryptedMnemonic", encryptedMnemonic, null);
+    }
+
+    private void createHDWallet(String mnemonic) {
+        List<String> mnemonicCode = Arrays.asList(mnemonic.split(" "));
+        DeterministicSeed seed = new DeterministicSeed(mnemonicCode, null, "", 0);
+        Wallet hdWallet = Wallet.fromSeed(MainNetParams.get(), seed);
+        // Additional logic to use the wallet
     }
 
     private double improvedMathCalculation() {
-        // Implement advanced math calculation logic
-        return Math.sin(2.0) + Math.log10(10.0);
+        return fibonacciCalculation(10);
     }
 
-    private boolean hasAirplaneModePermission() {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.System.canWrite(this);
-    }
-
-    private void requestAirplaneModePermission() {
-        Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
-        intent.setData(Uri.parse("package:" + getPackageName()));
-        startActivityForResult(intent, REQUEST_CODE_AIRPLANE_MODE_PERMISSION);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CODE_AIRPLANE_MODE_PERMISSION) {
-            if (hasAirplaneModePermission()) {
-                // Continue with existing logic to prompt the user for Airplane Mode
-            } else {
-                // Inform the user about the importance of the permission
-                // and how to manually enable Airplane Mode
-                Toast.makeText(this, "Airplane Mode permission is required", Toast.LENGTH_SHORT).show();
-            }
-        }
+    private double fibonacciCalculation(int n) {
+        if (n <= 1) return n;
+        return fibonacciCalculation(n - 1) + fibonacciCalculation(n - 2);
     }
 
     private void handleException(String message, Exception e) {
-        Log.e(TAG, message + ": " + e.getMessage());
-        Toast.makeText(this, "An error occurred: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        // You might want to inform the user or log the error
+        Log.e(TAG, message, e);
+        Toast.makeText(this, "Error: " + e.getLocalizedMessage(), Toast.LENGTH_LONG).show();
     }
 }
